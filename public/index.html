@@ -200,42 +200,62 @@
             }
         }
 
-        function handleRegister() {
+        async function handleRegister() {
             const email = document.getElementById('reg-email').value.trim();
             const password = document.getElementById('reg-password').value;
             const errorElement = document.getElementById('reg-error');
             if (!email || !password) return;
-            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
-            if (users.some(u => u.email === email)) {
-                errorElement.style.display = 'block';
-                return;
+            try {
+                const resp = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+                if (resp.status === 409) {
+                    errorElement.style.display = 'block';
+                    return;
+                }
+                const data = await resp.json();
+                localStorage.setItem('admia_session', JSON.stringify({ email: data.email, sessionId: data.sessionId }));
+                initApp(data.email);
+            } catch (e) {
+                console.error(e);
             }
-            users.push({ email, password, messageCount: 0, lockUntil: null });
-            localStorage.setItem('admia_users', JSON.stringify(users));
-            initApp(email);
         }
 
-        function handleLogin() {
+        async function handleLogin() {
             const email = document.getElementById('login-email').value.trim();
             const password = document.getElementById('login-password').value;
             const errorElement = document.getElementById('login-error');
-            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
-            let user = users.find(u => u.email === email && u.password === password);
-            if (!user) {
-                errorElement.style.display = 'block';
-                return;
+            try {
+                const resp = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+                if (!resp.ok) {
+                    errorElement.style.display = 'block';
+                    return;
+                }
+                const data = await resp.json();
+                localStorage.setItem('admia_session', JSON.stringify({ email: data.email, sessionId: data.sessionId }));
+                initApp(data.email);
+            } catch (e) {
+                console.error(e);
             }
-            initApp(email);
         }
 
-        function initApp(email) {
+        async function initApp(email) {
             currentUser = email;
-            localStorage.setItem('admia_session', email);
+            const sess = JSON.parse(localStorage.getItem('admia_session') || '{}');
             document.getElementById('register-screen').classList.add('auth-hidden');
             document.getElementById('login-screen').classList.add('auth-hidden');
             document.getElementById('app-interface').classList.add('chat-active');
             document.getElementById('user-display-email').innerText = email;
-            checkLimits();
+            // fetch user state from server
+            try {
+                const resp = await fetch('/api/me?sessionId=' + encodeURIComponent(sess.sessionId));
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.lockUntil) {
+                        document.getElementById('user-input').disabled = true;
+                        document.getElementById('paywall-modal').classList.add('modal-active');
+                        startTimer(data.lockUntil);
+                    }
+                }
+            } catch (e) { console.error(e); }
         }
 
         function handleLogout() {
@@ -275,19 +295,15 @@
             appendMessage(text, 'user');
             inputField.value = '';
 
-            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
-            let user = users.find(u => u.email === currentUser);
-            if (user) {
-                user.messageCount++;
-                localStorage.setItem('admia_users', JSON.stringify(users));
-            }
+            const sess = JSON.parse(localStorage.getItem('admia_session') || '{}');
 
             const loader = document.getElementById('bot-loader');
             loader.style.display = 'block';
 
             try {
-                const sessionId = currentUser || ('guest-' + (localStorage.getItem('admia_guest_id') || Date.now()));
-                if (!localStorage.getItem('admia_guest_id')) localStorage.setItem('admia_guest_id', sessionId);
+
+                const sessionId = sess.sessionId || ('guest-' + (localStorage.getItem('admia_guest_id') || Date.now()));
+                if (!sess.sessionId && !localStorage.getItem('admia_guest_id')) localStorage.setItem('admia_guest_id', sessionId);
 
                 const resp = await fetch('/api/chat', {
                     method: 'POST',
@@ -299,13 +315,32 @@
 
                 if (!resp.ok) {
                     const err = await resp.json();
+                    if (err.error === 'locked') {
+                        document.getElementById('user-input').disabled = true;
+                        document.getElementById('paywall-modal').classList.add('modal-active');
+                        startTimer(err.lockUntil || Date.now() + 3600000);
+                        appendMessage('Limite atteinte. Passez Pro ou attendez la réinitialisation.', 'bot');
+                        return;
+                    }
                     appendMessage('Erreur du serveur: ' + (err.error || resp.statusText), 'bot');
                     return;
                 }
 
                 const data = await resp.json();
                 appendMessage(data.reply, 'bot');
-                checkLimits();
+                // refresh user state
+                const sess2 = JSON.parse(localStorage.getItem('admia_session') || '{}');
+                try {
+                    const me = await fetch('/api/me?sessionId=' + encodeURIComponent(sess2.sessionId));
+                    if (me.ok) {
+                        const mdata = await me.json();
+                        if (mdata.lockUntil) {
+                            document.getElementById('user-input').disabled = true;
+                            document.getElementById('paywall-modal').classList.add('modal-active');
+                            startTimer(mdata.lockUntil);
+                        }
+                    }
+                } catch (e) {}
             } catch (e) {
                 loader.style.display = 'none';
                 appendMessage('Erreur réseau. Réessayez.', 'bot');

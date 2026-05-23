@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admia - Votre Assistant Administratif Intelligent</title>
+    <style>
+        :root {
+            --gradient-primary: linear-gradient(135deg, #ff758c 0%, #ff7eb3 50%, #86fde8 100%);
+            --color-bg: #0f172a;
+            --color-card: #1e293b;
+            --color-text: #f8fafc;
+            --color-text-muted: #94a3b8;
+            --color-border: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Écrans d'authentification */
+        .auth-container {
+            background-color: var(--color-card);
+            border: 1px solid var(--color-border);
+            padding: 2.5rem;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            text-align: center;
+            position: absolute;
+            z-index: 10;
+            transition: all 0.3s ease;
+        }
+
+        .auth-hidden {
+            display: none !important;
+        }
+
+        .logo-star {
+            width: 60px;
+            height: 60px;
+            background: var(--gradient-primary);
+            clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+            margin: 0 auto 1.5rem auto;
+        }
+
+        .auth-container h2 {
+            margin-bottom: 0.5rem;
+            font-size: 1.8rem;
+        }
+
+        .auth-container p {
+            color: var(--color-text-muted);
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+
+        .input-group {
+            margin-bottom: 1.25rem;
+            text-align: left;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background-color: #0f172a;
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            color: var(--color-text);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: #ff7eb3;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--gradient-primary);
+            border: none;
+            border-radius: 8px;
+            color: #0f172a;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            transition: opacity 0.2s;
+        }
+
+        .btn-submit:hover {
+            opacity: 0.9;
+        }
+
+        .auth-toggle {
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+            color: var(--color-text-muted);
+        }
+
+        .auth-toggle span {
+            color: #ff7eb3;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .error-msg {
+            color: #ef4444;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        /* Interface Principale Chat */
+        .chat-interface {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            background-color: var(--color-bg);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .chat-active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Barre latérale */
+        .sidebar {
+            width: 260px;
+            background-color: #0b0f19;
+            border-right: 1px solid var(--color-border);
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem 1rem;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .sidebar-logo .logo-star {
+            width: 32px;
+            height: 32px;
+            margin: 0;
+        }
+
+        .sidebar-logo h1 {
+            font-size: 1.4rem;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .user-profile {
+            margin-top: auto;
+            padding-top: 1rem;
+            border-top: 1px solid var(--color-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .user-info {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+        }
+
+        .btn-logout {
+            background: transparent;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        /* Zone de Chat Principal */
+        .main-chat {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .message.user {
+            background-color: #334155;
+            color: var(--color-text);
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.bot {
+            background-color: var(--color-card);
+            color: var(--color-text);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            border: 1px solid var(--color-border);
+        }
+
+        /* Indicateur de chargement Étoile Tournante */
+        .loading-container {
+            display: none;
+            align-self: flex-start;
+            margin-left: 0.5rem;
+        }
+
+        .spinning-star {
+            width: 24px;
+            height: 24px;
+            background: var(--gradient-primary);
+            clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+            animation: spin 1.2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Zone d'écriture */
+        .chat-input-area {
+            padding: 1.5rem 2rem;
+            background-color: var(--color-bg);
+            border-top: 1px solid var(--color-border);
+        }
+
+        .input-wrapper {
+            display: flex;
+            background-color: var(--color-card);
+            border: 1px solid var(--color-border);
+            border-radius: 24px;
+            padding: 0.5rem 1rem;
+            align-items: center;
+        }
+
+        .input-wrapper input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--color-text);
+            padding: 0.5rem;
+            font-size: 1rem;
+        }
+
+        .btn-send {
+            background: var(--gradient-primary);
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #0f172a;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+
+        .btn-send:hover {
+            transform: scale(1.05);
+        }
+
+        /* Fenêtre Modale Paywall (Mode Pro) */
+        .modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background-color: var(--color-card);
+            border: 2px solid #ff7eb3;
+            border-radius: 20px;
+            padding: 3rem;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .modal-content h3 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .modal-content p {
+            color: var(--color-text-muted);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .price-tag {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--color-text);
+            margin-bottom: 1.5rem;
+        }
+
+        .price-tag span {
+            font-size: 1rem;
+            color: var(--color-text-muted);
+            font-weight: 400;
+        }
+
+        .btn-paypal {
+            display: inline-block;
+            width: 100%;
+            padding: 1rem;
+            background: #0070ba;
+            color: white;
+            text-decoration: none;
+            border-radius: 30px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            transition: background 0.2s;
+        }
+
+        .btn-paypal:hover {
+            background: #005ea6;
+        }
+
+        .countdown-timer {
+            font-size: 0.9rem;
+            color: #ff758c;
+            margin-top: 1rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ECRAN INSCRIPTION -->
+    <div id="register-screen" class="auth-container">
+        <div class="logo-star"></div>
+        <h2>Rejoindre Admia</h2>
+        <p>Votre gestionnaire administratif automatisé</p>
+        <div class="input-group">
+            <label>Adresse E-mail</label>
+            <input type="email" id="reg-email" placeholder="exemple@domaine.com" required>
+            <div id="reg-error" class="error-msg">Cet e-mail est déjà utilisé.</div>
+        </div>
+        <div class="input-group">
+            <label>Mot de passe</label>
+            <input type="password" id="reg-password" placeholder="••••••••" required>
+        </div>
+        <button class="btn-submit" onclick="handleRegister()">Créer mon compte</button>
+        <div class="auth-toggle">Déjà un compte ? <span onclick="switchAuthScreen('login')">Se connecter</span></div>
+    </div>
+
+    <!-- ECRAN CONNEXION -->
+    <div id="login-screen" class="auth-container auth-hidden">
+        <div class="logo-star"></div>
+        <h2>Connexion à Admia</h2>
+        <p>Ravi de vous revoir</p>
+        <div class="input-group">
+            <label>Adresse E-mail</label>
+            <input type="email" id="login-email" placeholder="exemple@domaine.com" required>
+        </div>
+        <div class="input-group">
+            <label>Mot de passe</label>
+            <input type="password" id="login-password" placeholder="••••••••" required>
+            <div id="login-error" class="error-msg">Identifiants incorrects.</div>
+        </div>
+        <button class="btn-submit" onclick="handleLogin()">Se connecter</button>
+        <div class="auth-toggle">Nouveau sur Admia ? <span onclick="switchAuthScreen('register')">Créer un compte</span></div>
+    </div>
+
+    <!-- INTERFACE APPLICATIVE PRINCIPALE -->
+    <div id="app-interface" class="chat-interface">
+        <!-- Barre latérale -->
+        <div class="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-star"></div>
+                <h1>Admia</h1>
+            </div>
+            <div class="user-profile">
+                <div class="user-info" id="user-display-email">user@mail.com</div>
+                <button class="btn-logout" onclick="handleLogout()">Quitter</button>
+            </div>
+        </div>
+
+        <!-- Zone d'échange -->
+        <div class="main-chat">
+            <div class="chat-messages" id="chat-box">
+                <div class="message bot">
+                    Bonjour ! Je suis **Admia**, votre assistante experte en gestion administrative. Que puis-je rédiger, analyser ou organiser pour vous aujourd'hui ?
+                </div>
+            </div>
+
+            <!-- Loader étoile tournante -->
+            <div class="loading-container" id="bot-loader">
+                <div class="spinning-star"></div>
+            </div>
+
+            <!-- Entrée utilisateur -->
+            <div class="chat-input-area">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" placeholder="Demandez une lettre, un contrat, une synthèse..." onkeypress="checkEnter(event)">
+                    <button class="btn-send" onclick="sendMessage()">➔</button>
+                </div>
+            </div>
+
+            <!-- Paywall Modale (Bloqué après 8 messages) -->
+            <div class="modal-overlay" id="paywall-modal">
+                <div class="modal-content">
+                    <h3>Limite d'utilisation atteinte</h3>
+                    <p>Vous avez utilisé vos 8 demandes administratives gratuites. Passez au forfait Admia Pro pour débloquer l'assistant en illimité et accélérer toutes vos démarches.</p>
+                    <div class="price-tag">10€ <span>/ mois</span></div>
+                    <a href="https://www.paypal.com/ncp/payment/VV5WKFXWMJ6QN" target="_blank" class="btn-paypal">Devenir Pro avec PayPal</a>
+                    <p style="font-size: 0.8rem; margin-bottom: 0.5rem;">Ou attendez la réinitialisation de vos accès :</p>
+                    <div class="countdown-timer" id="timer-display">00:00:00</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        const MESSAGE_LIMIT = 8;
+        const LOCK_TIME_MS = 10 * 60 * 60 * 1000; // 10 Heures
+
+        // Système d'analyse sémantique locale pour répondre logiquement au contexte
+        function generateSmartResponse(userText) {
+            const txt = userText.toLowerCase();
+            
+            if (txt.includes('bonjour') || txt.includes('salut') || txt.includes('hello') || txt.includes('cc')) {
+                return "Bonjour ! Comment puis-je vous aider dans vos démarches ou rédactions de documents aujourd'hui ?";
+            }
+            if (txt.includes('ca va') || txt.includes('ça va') || txt.includes('comment tu vas')) {
+                return "Je fonctionne à plein régime ! Prête à décoder vos formulaires ou rédiger vos courriers officiels. Qu'avez-vous à traiter ?";
+            }
+            if (txt.includes('mail') || txt.includes('courriel') || txt.includes('boite mail') || txt.includes('boîte')) {
+                return "S'il s'agit d'un problème technique avec votre boîte mail, je vous conseille de vérifier vos paramètres POP/IMAP ou de contacter votre fournisseur. S'il s'agit d'un litige administratif ou d'un e-mail officiel à rédiger, décrivez-moi la situation, je m'en occupe !";
+            }
+            if (txt.includes('lettre') || txt.includes('courrier') || txt.includes('contester') || txt.includes('contestation')) {
+                return "J'ai préparé la trame de votre lettre de contestation administrative. J'y ai intégré les formules de politesse requises et les espaces pour vos références juridiques afin d'optimiser vos chances d'annulation.";
+            }
+            if (txt.includes('contrat') || txt.includes('clause') || txt.includes('signer')) {
+                return "J'ai analysé les termes généraux de ce type de contrat. Attention, certaines clauses standardisées présentent parfois un risque d'interprétation ambiguë. Pouvez-vous me préciser les lignes qui vous posent problème ?";
+            }
+            if (txt.includes('probleme') || txt.includes('souci') || txt.includes('aide')) {
+                return "Je suis là pour ça. Précisez-moi s'il s'agit d'un litige avec un organisme, d'une déclaration fiscale, ou d'un dossier d'immatriculation, et je vous guiderai pas à pas.";
+            }
+            
+            // Réponse par défaut si aucun mot-clé n'est détecté
+            return "J'ai bien pris note de votre demande concernant ce dossier. Pour vous fournir la pièce administrative ou la réponse la plus précise possible, pouvez-vous me donner un peu plus de détails sur l'organisme concerné (CAF, Impôts, Employeur...) ?";
+        }
+
+        // Vérification de session au démarrage
+        window.onload = function() {
+            const savedUser = localStorage.getItem('admia_session');
+            if (savedUser) {
+                initApp(savedUser);
+            }
+        };
+
+        function switchAuthScreen(screen) {
+            document.getElementById('reg-error').style.display = 'none';
+            document.getElementById('login-error').style.display = 'none';
+            if (screen === 'login') {
+                document.getElementById('register-screen').classList.add('auth-hidden');
+                document.getElementById('login-screen').classList.remove('auth-hidden');
+            } else {
+                document.getElementById('login-screen').classList.add('auth-hidden');
+                document.getElementById('register-screen').classList.remove('auth-hidden');
+            }
+        }
+
+        function handleRegister() {
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const errorElement = document.getElementById('reg-error');
+
+            if (!email || !password) return;
+
+            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
+            
+            if (users.some(u => u.email === email)) {
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            users.push({ email, password, messageCount: 0, lockUntil: null });
+            localStorage.setItem('admia_users', JSON.stringify(users));
+
+            initApp(email);
+        }
+
+        function handleLogin() {
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            const errorElement = document.getElementById('login-error');
+
+            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
+            let user = users.find(u => u.email === email && u.password === password);
+
+            if (!user) {
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            initApp(email);
+        }
+
+        function initApp(email) {
+            currentUser = email;
+            localStorage.setItem('admia_session', email);
+            
+            document.getElementById('register-screen').classList.add('auth-hidden');
+            document.getElementById('login-screen').classList.add('auth-hidden');
+            document.getElementById('app-interface').classList.add('chat-active');
+            document.getElementById('user-display-email').innerText = email;
+
+            checkLimits();
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('admia_session');
+            currentUser = null;
+            document.getElementById('app-interface').classList.remove('chat-active');
+            switchAuthScreen('login');
+        }
+
+        function checkLimits() {
+            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
+            let user = users.find(u => u.email === currentUser);
+            if (!user) return;
+
+            if (user.lockUntil && Date.now() > user.lockUntil) {
+                user.messageCount = 0;
+                user.lockUntil = null;
+                localStorage.setItem('admia_users', JSON.stringify(users));
+            }
+
+            if (user.messageCount >= MESSAGE_LIMIT) {
+                if (!user.lockUntil) {
+                    user.lockUntil = Date.now() + LOCK_TIME_MS;
+                    localStorage.setItem('admia_users', JSON.stringify(users));
+                }
+                document.getElementById('user-input').disabled = true;
+                document.getElementById('paywall-modal').classList.add('modal-active');
+                startTimer(user.lockUntil);
+            }
+        }
+
+        function sendMessage() {
+            const inputField = document.getElementById('user-input');
+            const text = inputField.value.trim();
+            if (!text) return;
+
+            appendMessage(text, 'user');
+            inputField.value = '';
+
+            let users = JSON.parse(localStorage.getItem('admia_users')) || [];
+            let user = users.find(u => u.email === currentUser);
+            user.messageCount++;
+            localStorage.setItem('admia_users', JSON.stringify(users));
+
+            const loader = document.getElementById('bot-loader');
+            loader.style.display = 'block';
+
+            setTimeout(() => {
+                loader.style.display = 'none';
+                // Utilisation du moteur de réponse intelligent au lieu du hasard
+                const smartReply = generateSmartResponse(text);
+                appendMessage(smartReply, 'bot');
+                checkLimits();
+            }, 1200);
+        }
+
+        function appendMessage(text, sender) {
+            const chatBox = document.getElementById('chat-box');
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message', sender);
+            msgDiv.innerText = text;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function checkEnter(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function startTimer(endTime) {
+            const timerDisplay = document.getElementById('timer-display');
+            
+            const interval = setInterval(() => {
+                const remaining = endTime - Date.now();
+                
+                if (remaining <= 0) {
+                    clearInterval(interval);
+                    document.getElementById('user-input').disabled = false;
+                    document.getElementById('paywall-modal').classList.remove('modal-active');
+                    return;
+                }
+
+                const hours = Math.floor(remaining / (1000 * 60 * 60));
+                const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+                timerDisplay.innerText = 
+                    (hours < 10 ? '0' : '') + hours + ':' + 
+                    (minutes < 10 ? '0' : '') + minutes + ':' + 
+                    (seconds < 10 ? '0' : '') + seconds;
+            }, 1000);
+        }
+    </script>
+</body>
+</html>

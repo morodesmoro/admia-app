@@ -38,6 +38,84 @@ function makeSessionId() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// --- Vector store (SQLite) ---
+const Database = require('better-sqlite3');
+const DB_FILE = path.join(__dirname, '..', 'server_data.db');
+const db = new Database(DB_FILE);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  owner TEXT,
+  content TEXT,
+  embedding TEXT,
+  created_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sessionId TEXT,
+  role TEXT,
+  content TEXT,
+  created_at INTEGER
+);
+`);
+
+async function getEmbedding(text) {
+  const model = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+  const resp = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({ model, input: text })
+  });
+  if (!resp.ok) throw new Error('Embedding request failed');
+  const data = await resp.json();
+  return data.data?.[0]?.embedding || null;
+}
+
+function storeDocument(id, owner, content, embedding) {
+  const stmt = db.prepare('INSERT OR REPLACE INTO documents (id, owner, content, embedding, created_at) VALUES (?, ?, ?, ?, ?)');
+  stmt.run(id, owner, content, JSON.stringify(embedding), Date.now());
+}
+
+function storeMessage(sessionId, role, content) {
+  const stmt = db.prepare('INSERT INTO messages (sessionId, role, content, created_at) VALUES (?, ?, ?, ?)');
+  stmt.run(sessionId, role, content, Date.now());
+}
+
+function allDocuments() {
+  const stmt = db.prepare('SELECT id, owner, content, embedding, created_at FROM documents');
+  return stmt.all();
+}
+
+function cosine(a, b) {
+  let dot = 0; let na = 0; let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+function searchDocsByEmbedding(queryEmbedding, topK = 3) {
+  const docs = allDocuments();
+  const scored = [];
+  for (const d of docs) {
+    try {
+      const emb = JSON.parse(d.embedding);
+      const score = cosine(queryEmbedding, emb);
+      scored.push({ id: d.id, owner: d.owner, content: d.content, score });
+    } catch (e) { continue; }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, topK);
+}
+
 app.post('/api/chat', async (req, res) => {
   const { message, sessionId } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
@@ -56,11 +134,25 @@ app.post('/api/chat', async (req, res) => {
   const history = sessions.get(sessionId) || [];
   history.push({ role: 'user', content: message });
 
-  // Keep last 10 messages
-  const messages = [
-    { role: 'system', content: 'Vous êtes Admia, une assistante administrative professionnelle et concise en français.' },
-    ...history.slice(-10)
-  ];
+  // Keep last 10 messages from DB
+  const recentStmt = db.prepare('SELECT role, content FROM messages WHERE sessionId = ? ORDER BY id DESC LIMIT 10');
+  const recent = recentStmt.all(sessionId).reverse().map(r => ({ role: r.role, content: r.content }));
+
+  // RAG: retrieve relevant documents
+  let ragContext = '';
+  try {
+    const qEmb = await getEmbedding(message);
+    const hits = searchDocsByEmbedding(qEmb, 3);
+    if (hits.length) {
+      ragContext = 'Contexte pertinent trouv\u00e9 :\n' + hits.map((h, i) => `${i+1}. ${h.content.substring(0, 500)} (score:${h.score.toFixed(3)})`).join('\n');
+    }
+  } catch (e) {
+    console.error('RAG error', e.message);
+  }
+
+  const systemPrompt = 'Vous êtes Admia, une assistante administrative professionnelle et concise en fran\u00e7ais. Toujours fournissez des instructions claires, proposez des modèles de lettres, et mentionnez les sources si vous utilisez des documents fournis.' + (ragContext ? '\n' + ragContext : '');
+
+  const messages = [ { role: 'system', content: systemPrompt }, ...recent, { role: 'user', content: message } ];
 
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -87,6 +179,9 @@ app.post('/api/chat', async (req, res) => {
 
     history.push({ role: 'assistant', content: bot });
     sessions.set(sessionId, history);
+    // persist messages
+    storeMessage(sessionId, 'user', message);
+    storeMessage(sessionId, 'assistant', bot);
 
     // increment messageCount if we have a user
     if (user) {
@@ -119,6 +214,7 @@ app.post('/api/register', async (req, res) => {
   const sessionId = makeSessionId();
   sessionUsers.set(sessionId, email);
 
+  // create initial user doc table entries (no documents yet)
   res.json({ sessionId, email });
 });
 
@@ -149,6 +245,34 @@ app.get('/api/me', async (req, res) => {
   const user = users.find(u => u.email === email);
   if (!user) return res.status(404).json({ error: 'not found' });
   res.json({ email: user.email, messageCount: user.messageCount || 0, lockUntil: user.lockUntil || null });
+});
+
+// Add document endpoint
+app.post('/api/docs', async (req, res) => {
+  const { content, sessionId } = req.body || {};
+  if (!content) return res.status(400).json({ error: 'content required' });
+  const email = sessionUsers.get(sessionId) || null;
+  try {
+    const emb = await getEmbedding(content);
+    const id = crypto.randomBytes(8).toString('hex');
+    storeDocument(id, email, content, emb);
+    res.json({ id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Search documents
+app.post('/api/search', async (req, res) => {
+  const { query, topK = 3 } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query required' });
+  try {
+    const qEmb = await getEmbedding(query);
+    const hits = searchDocsByEmbedding(qEmb, topK);
+    res.json({ hits });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => {

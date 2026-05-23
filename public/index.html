@@ -163,6 +163,26 @@
                 </div>
             </div>
 
+            <!-- Toolbox: upload images, analyse texte, générer documents -->
+            <div style="padding:1rem 2rem; background:transparent; border-top:1px solid var(--color-border);">
+                <div style="display:flex; gap:1rem; align-items:center; margin-bottom:0.75rem;">
+                    <input type="file" id="image-file" accept="image/*">
+                    <button class="btn-submit" onclick="uploadImage()" style="width:auto; padding:0.5rem 1rem;">Uploader et analyser image</button>
+                    <button class="btn-submit" onclick="analyzeLastImage()" style="width:auto; padding:0.5rem 1rem;">Analyser dernière image</button>
+                </div>
+                <div style="margin-bottom:0.5rem;">
+                    <label style="color:var(--color-text-muted); font-size:0.9rem;">Analyse linguistique / Coller un texte :</label>
+                    <textarea id="analyse-textarea" rows="3" style="width:100%; margin-top:0.5rem; padding:0.5rem; background:var(--color-card); border:1px solid var(--color-border); color:var(--color-text); border-radius:8px;"></textarea>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                        <button class="btn-submit" onclick="analyzeText()" style="width:auto; padding:0.5rem 1rem;">Analyser le texte</button>
+                        <button class="btn-submit" onclick="generateFromText('email')" style="width:auto; padding:0.5rem 1rem;">Générer e‑mail</button>
+                        <button class="btn-submit" onclick="generateFromText('lettre')" style="width:auto; padding:0.5rem 1rem;">Générer lettre</button>
+                        <button class="btn-submit" onclick="generateFromText('cv')" style="width:auto; padding:0.5rem 1rem;">Générer CV</button>
+                    </div>
+                </div>
+                <div id="toolbox-result" style="margin-top:0.75rem; color:var(--color-text); font-size:0.95rem; max-height:220px; overflow:auto;"></div>
+            </div>
+
             <div class="modal-overlay" id="paywall-modal">
                 <div class="modal-content">
                     <h3>Limite d'utilisation atteinte</h3>
@@ -373,6 +393,62 @@
                 const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
                 timerDisplay.innerText = (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
             }, 1000);
+        }
+
+        // Toolbox functions
+        async function uploadImage() {
+            const input = document.getElementById('image-file');
+            const file = input.files[0];
+            if (!file) return alert('Choisissez une image');
+            const fd = new FormData();
+            fd.append('image', file);
+            const resp = await fetch('/api/upload-image', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (resp.ok) {
+                localStorage.setItem('admia_last_image', data.url);
+                document.getElementById('toolbox-result').innerText = 'Image uploadée: ' + data.url;
+            } else {
+                document.getElementById('toolbox-result').innerText = 'Erreur upload';
+            }
+        }
+
+        async function analyzeLastImage() {
+            const url = localStorage.getItem('admia_last_image');
+            if (!url) return alert('Aucune image uploadée');
+            const sess = JSON.parse(localStorage.getItem('admia_session') || '{}');
+            const resp = await fetch('/api/analyze-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageUrl: url, sessionId: sess.sessionId }) });
+            const data = await resp.json();
+            if (resp.ok) {
+                document.getElementById('toolbox-result').innerText = data.analysis || JSON.stringify(data.raw, null, 2);
+            } else {
+                document.getElementById('toolbox-result').innerText = 'Erreur analyse: ' + (data.error || '');
+            }
+        }
+
+        async function analyzeText() {
+            const text = document.getElementById('analyse-textarea').value.trim();
+            if (!text) return alert('Collez un texte');
+            const resp = await fetch('/api/analyze-text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+            const data = await resp.json();
+            if (resp.ok) {
+                document.getElementById('toolbox-result').innerText = data.analysis || JSON.stringify(data, null, 2);
+            } else {
+                document.getElementById('toolbox-result').innerText = 'Erreur: ' + (data.error || '');
+            }
+        }
+
+        async function generateFromText(type) {
+            const text = document.getElementById('analyse-textarea').value.trim();
+            if (!text) return alert('Collez un contexte');
+            const sess = JSON.parse(localStorage.getItem('admia_session') || '{}');
+            const payload = { context: text };
+            const resp = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, payload, sessionId: sess.sessionId }) });
+            const data = await resp.json();
+            if (resp.ok) {
+                document.getElementById('toolbox-result').innerText = data.document || JSON.stringify(data, null, 2);
+            } else {
+                document.getElementById('toolbox-result').innerText = 'Erreur génération: ' + (data.error || '');
+            }
         }
     </script>
 </body>

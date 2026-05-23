@@ -26,5 +26,12 @@ RAG & mémoire (embeddings + SQLite)
 Usage: add documents either via the endpoint or extend the front-end UI to allow users to upload documents for better, context-aware responses.
 
 
+Upload / analyse / génération
+
+- `POST /api/upload-image` (multipart form file 'image') -> stocke l'image dans `public/uploads` et retourne son URL.
+- `POST /api/analyze-image` { imageUrl, sessionId } -> analyse multimodale (OCR, description, actions) via l'API LLM et stocke le résultat pour RAG.
+- `POST /api/analyze-text` { text } -> renvoie une analyse linguistique détaillée (mot/phrase/intentions) en JSON.
+- `POST /api/generate` { type: 'email'|'lettre'|'cv', payload, sessionId } -> génère un document adapté.
+
 # admia-app
 En moins de 350 caractères (idéal pour GitHub) :  Admia est un assistant administratif intelligent sous forme de chat. Conçu pour simplifier la paperasse, il aide à rédiger des courriers officiels, analyser des contrats et décoder des formulaires. L'application intègre un système d'abonnement simulé (Paywall).

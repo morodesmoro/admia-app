@@ -61,6 +61,24 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 `);
 
+// Multer for uploads
+const multer = require('multer');
+const UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: function (req, file, cb) {
+    const name = Date.now() + '-' + file.originalname.replace(/[^a-z0-9.\-]/gi, '_');
+    cb(null, name);
+  }
+});
+const upload = multer({ storage });
+
+// ensure uploads dir exists
+const fsSync = require('fs');
+if (!fsSync.existsSync(UPLOADS_DIR)) fsSync.mkdirSync(UPLOADS_DIR, { recursive: true });
+
 async function getEmbedding(text) {
   const model = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
   const resp = await fetch('https://api.openai.com/v1/embeddings', {
@@ -270,6 +288,103 @@ app.post('/api/search', async (req, res) => {
     const qEmb = await getEmbedding(query);
     const hits = searchDocsByEmbedding(qEmb, topK);
     res.json({ hits });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Upload image
+app.post('/api/upload-image', upload.single('image'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no file' });
+  const url = `/uploads/${req.file.filename}`;
+  res.json({ url, filename: req.file.filename });
+});
+
+// Analyze image via OpenAI Responses (multimodal)
+app.post('/api/analyze-image', async (req, res) => {
+  const { imageUrl, sessionId } = req.body || {};
+  if (!imageUrl) return res.status(400).json({ error: 'imageUrl required' });
+  try {
+    const prompt = `Analyse l'image fournie en fran\u00e7ais. 1) Extrait le texte visible (OCR) si possible. 2) Décris les objets, personnes, et éléments importants. 3) Donne des actions concr\u00e8tes ou un courrier type si l'image implique une action administrative.`;
+
+    const resp = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        input: [
+          { role: 'user', content: `${prompt}\nImage URL: ${process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL + imageUrl : imageUrl}` }
+        ]
+      })
+    });
+
+    const data = await resp.json();
+    const output = data.output?.[0]?.content?.[0]?.text || JSON.stringify(data);
+
+    // store as document for RAG
+    try {
+      const emb = await getEmbedding(output.substring(0, 2000));
+      const id = crypto.randomBytes(8).toString('hex');
+      const owner = sessionUsers.get(sessionId) || null;
+      storeDocument(id, owner, output, emb);
+    } catch (e) { /* continue */ }
+
+    res.json({ analysis: output, raw: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Deep linguistic analysis endpoint
+app.post('/api/analyze-text', async (req, res) => {
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const system = 'Vous êtes un linguiste et un assistant administratif. Analyse chaque mot et chaque phrase en fran\u00e7ais en détaillant POS, lemme, rôle s\u00e9mantique, intention, et propose une r\u00e9ponse cibl\u00e9e. Donnez une sortie JSON structur\u00e9e.';
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', messages: [ { role: 'system', content: system }, { role: 'user', content: text } ], max_tokens: 1200, temperature: 0 })
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      return res.status(500).json({ error: t });
+    }
+    const data = await resp.json();
+    const reply = data.choices?.[0]?.message?.content || JSON.stringify(data);
+    res.json({ analysis: reply });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Generate document (email, lettre, CV)
+app.post('/api/generate', async (req, res) => {
+  const { type, payload, sessionId } = req.body || {};
+  if (!type || !payload) return res.status(400).json({ error: 'type and payload required' });
+  try {
+    let prompt = '';
+    if (type === 'email') {
+      prompt = `R\u00e9dige un e-mail professionnel en fran\u00e7ais \nContexte: ${payload.context || ''}\nObjectif: ${payload.objective || ''}\nTon: ${payload.tone || 'professionnel'}\nInclure salutations et signature.`;
+    } else if (type === 'lettre') {
+      prompt = `R\u00e9dige une lettre administrative formelle en fran\u00e7ais \nContexte: ${payload.context || ''}\nDonn\u00e9es: ${payload.data || ''}`;
+    } else if (type === 'cv') {
+      prompt = `G\u00e9n\u00e8re un CV textuel en fran\u00e7ais format\u00e9 pour ${payload.name || 'candidate'}. Exp\u00e9rience: ${payload.experience || ''}. Comp\u00e9tences: ${payload.skills || ''}. Objectif: ${payload.objective || ''}`;
+    } else {
+      prompt = `G\u00e9n\u00e8re un document de type ${type} avec le contenu suivant: ${JSON.stringify(payload)}`;
+    }
+
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', messages: [ { role: 'system', content: 'Vous êtes Admia, assistant professionnel.' }, { role: 'user', content: prompt } ], max_tokens: 1000, temperature: 0.2 })
+    });
+    const data = await resp.json();
+    const doc = data.choices?.[0]?.message?.content || JSON.stringify(data);
+    res.json({ document: doc });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
